@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# bh - BloodHound CE quick launcher
+# Usage: bh {up|down|status|logs|password|reset|url}
+
+set -euo pipefail
+
+BH_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Use sudo only when the current user can't talk to the docker daemon directly
+# (i.e., not in the 'docker' group). Keeps the script working on both setups.
+if docker info >/dev/null 2>&1; then
+  COMPOSE="docker compose -f ${BH_DIR}/docker-compose.yml"
+else
+  COMPOSE="sudo docker compose -f ${BH_DIR}/docker-compose.yml"
+fi
+
+case "${1:-help}" in
+  up)
+    echo "[*] Starting BloodHound CE..."
+    $COMPOSE up -d
+    echo "[+] BloodHound UI: http://localhost:8080"
+    echo "[*] First run? Get the initial password with: bh password"
+    ;;
+  down)
+    echo "[*] Stopping BloodHound CE..."
+    $COMPOSE down
+    echo "[+] Stopped."
+    ;;
+  status)
+    $COMPOSE ps
+    ;;
+  logs)
+    $COMPOSE logs -f --tail=100 "${2:-bloodhound}"
+    ;;
+  password)
+    echo "[*] Searching for initial admin password in logs..."
+    $COMPOSE logs bloodhound 2>&1 | grep -i "initial password" || \
+      echo "[-] No initial password found. Either already changed or containers haven't started yet."
+    ;;
+  reset)
+    read -rp "[!] This will DELETE all BloodHound data (graph + DB). Continue? [y/N] " ans
+    if [[ "${ans,,}" == "y" ]]; then
+      $COMPOSE down -v
+      echo "[+] Volumes removed. Run 'bh up' for a fresh instance."
+    else
+      echo "[*] Aborted."
+    fi
+    ;;
+  url)
+    echo "http://localhost:8080"
+    ;;
+  help|*)
+    cat <<'USAGE'
+BloodHound CE Manager
+
+  bh up              Start all containers (detached)
+  bh down            Stop all containers
+  bh status          Show container status
+  bh logs [service]  Tail logs (default: bloodhound)
+  bh password        Show initial admin password from logs
+  bh reset           Stop and wipe all data volumes
+  bh url             Print the UI URL
+USAGE
+    ;;
+esac
